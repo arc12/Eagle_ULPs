@@ -3,13 +3,17 @@
 	"A .scr file is created in the same folder as the .hpgl input. "
 	"This file may be used to repeat the import.</p>"
 	"<p>A typical use would create a <i>vector</i> graphic in inkscape with a given dimension in mm. "
-	"Export as HPGL with 1016 DPI.</p>"
-	"By default the HPGL is scaled to 1/40 to give wire traces at the same mm scale as the original image. "
-	"The Scale to Fit Box setting will rescale the image (preserving aspect ratio) so that it fits within a box of the specified size (in mm).</p>"
+	"Export as HPGL with 1016 DPI."
+	"By default the HPGL is scaled to 1/40 to give wire traces at the same mm scale as the original image.</p>"
+	"<p>In normal use choose the Wire output type. When using polygon output, note that setting the pour type = cutout may be used after import for subtractive effects.</p>"
+	"<p>The Scale to Fit Box setting will rescale the image (preserving aspect ratio) so that it fits within a box of the specified size (in mm).</p>"
 	"<p>The imported image can be positioned in three ways<br/>"
 	"1. Aligned to the x and y axes with all wires at positive coordinate values, i.e. in the correct position for a board outline.<br/>"
 	"2. Centred at a chosen position<br/>"
-	"3. Off-board (on the opposite side of the origin compared to option 1). This is the best place to group-select the shape and manually move it into place.</p>"
+	"3. Off-board (on the opposite side of the origin compared to option 1). This is the best place to group-select the shape and manually move it into place.<br/>"
+	"4. Absolute positioning; (0,0) of the original graphic maps to (0,0) on the board. Generally avoid Scale to Fit, noting that it scales from (0,0) to (max x, max y) into the specified box."
+	" Absolute positioning may be useful if several layers are used in an image and each converted to separate HPGL files for separate importing."
+	"<b>Beware</b> that the origin for graphics software may be top left, whereas for boards it is bottom left.</p>"
 //idea based on http://badcafe.co.uk/2011/03/20/dxf-hpgl-to-eagle-script-conversion/
 //but realised as ULP
 //Adam Cooper 2015. MIT Open Source Licence.
@@ -26,35 +30,46 @@ real boundY=50;
 string layerNames[] = {"top", "bottom", "dimension (board)", "tPlace", "bPlace", "tNames", "bNames"};
 int layerNumber[] = {1, 16, 20, 21, 22, 25, 26};
 int layerSel = 2;
+real defaultWidth[] = {1,1,0.1,0.5,0.5,0.5,0.5};
 //radio button position selection and XY centre input
 int radPos=0;
 real centreX=25;
 real centreY=25;
+//radio button to select wire or polygon
+int radType =0;
 
 //*** dialog box for parameter and file selection
 int Result = dlgDialog("Import HPGL") {
+  dlgHBoxLayout {
+    dlgLabel("Layer");
+    dlgComboBox(layerNames, layerSel) if(radType == 0) wireWidth = defaultWidth[layerSel];
+    dlgStretch(1);
+  }
+  dlgGroup("Shape Type"){
+    dlgVBoxLayout {
+      dlgRadioButton("Wire (normal)", radType) wireWidth = defaultWidth[layerSel];
+      dlgRadioButton("Polygon", radType) wireWidth = 0.4;
+    }
+  }
   dlgHBoxLayout {
     dlgLabel("Width");
     dlgRealEdit(wireWidth,0.1,10);
     dlgLabel("(use 0.1 if layer = dimension)");
     dlgStretch(1);
   }
-  dlgHBoxLayout {
-    dlgLabel("Layer");
-    dlgComboBox(layerNames, layerSel);
-    dlgStretch(1);
-  }
+
   dlgSpacing(10);
   dlgGroup("Import Position"){
-  dlgVBoxLayout {
-    dlgRadioButton("Align to Axes (board position)", radPos);
-    dlgHBoxLayout{
-      dlgRadioButton("Centre at", radPos);
-      dlgRealEdit(centreX, 0, 200);
-      dlgRealEdit(centreY, 0, 200);
+    dlgVBoxLayout {
+      dlgRadioButton("Align to Axes (board position)", radPos);
+      dlgHBoxLayout{
+        dlgRadioButton("Centre at", radPos);
+        dlgRealEdit(centreX, 0, 200);
+        dlgRealEdit(centreY, 0, 200);
+      }
+      dlgRadioButton("Off-board", radPos);
+      dlgRadioButton("Absolute", radPos);
     }
-    dlgRadioButton("Off-board", radPos);
-  }
   }
   dlgHBoxLayout {
     dlgGroup("Scale to Fit Box (0,0) to (X,Y)") {
@@ -139,6 +154,11 @@ for(int i = 3; i<(S-2); i++){
 }
 
 // **** offset and scaling calculated here
+//if absolute positioning, the implied min values are zeros.
+if(radPos==3){
+  minX=0;
+  minY=0;
+}
 //scaleDiv = 40 gives mm scaling assuming HPGL export ws 1016dpi. Factor 40 is assumed in several places in this section
 if(doBound==1){
   real rangeX=maxX-minX;//+wireWidth*40;
@@ -165,11 +185,11 @@ if(radPos == 0){
   //centre
   offsetX = centreX-maxX/2/scaleDiv;
   offsetY = centreY-maxY/2/scaleDiv;
-}else{
+}else if(radPos == 2){
  //off-board
   offsetX=-10-wireWidth/2+(minY-maxX)/scaleDiv;
   offsetY=-10-wireWidth/2+(minY-maxY)/scaleDiv;
-}
+}//else radPos == 3 (i.e. absolute)
 
 
 lastX=(lastX-minX)/scaleDiv+offsetX;
@@ -182,20 +202,34 @@ output(scrFile, "wt"){
 printf("#File generated using hpgl2scr.ulp v0.1\n");
 printf("grid mm\n");
 printf("grid 0.1\n");
-printf("set wire_bend 2\n");
+if(radType==0){
+  printf("set wire_bend 2\n");
+}
 printf("change width %f\n",wireWidth);
 printf("layer %d\n",layerNumber[layerSel]);
+if(radType==1){
+  printf("change isolate %f\n",wireWidth);
+  printf("poly (%f %f)", lastX, lastY);
+}
 
 for(int i = 3; i<(S-2); i++){
-	penDown = (strstr(hpglS[i],"PD")==0);
-	strsplit(tmpPos,strsub(hpglS[i],2),',');
-	X = (strtod(tmpPos[0])-minX)/scaleDiv+offsetX;
-	Y = (strtod(tmpPos[1])-minY)/scaleDiv+offsetY;	
-	if(penDown){
-		printf("wire (%f %f) (%f %f)\n", lastX, lastY, X, Y);
-	}
-	lastX = X;
-	lastY = Y;
+  penDown = (strstr(hpglS[i],"PD")==0);
+  strsplit(tmpPos,strsub(hpglS[i],2),',');
+  X = (strtod(tmpPos[0])-minX)/scaleDiv+offsetX;
+  Y = (strtod(tmpPos[1])-minY)/scaleDiv+offsetY;	
+  if(radType==0){
+    if(penDown){
+      printf("wire (%f %f) (%f %f)\n", lastX, lastY, X, Y);
+    }
+  }else{
+    if(penDown){
+     printf(" (%f %f)", X, Y);     
+    }else{
+      printf("\npoly (%f %f)", X, Y);
+    }
+  }
+  lastX = X;
+  lastY = Y;
 }
 }                
 string execScript;
