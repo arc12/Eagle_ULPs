@@ -41,6 +41,11 @@ int radType =0;
 //*** dialog box for parameter and file selection
 int Result = dlgDialog("Import HPGL") {
   dlgHBoxLayout {
+    dlgLabel("All units are mm");
+    dlgStretch(1);
+    }
+  dlgSpacing(10);
+  dlgHBoxLayout {
     dlgLabel("Layer");
     dlgComboBox(layerNames, layerSel) if(radType == 0) wireWidth = defaultWidth[layerSel];
     dlgStretch(1);
